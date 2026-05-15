@@ -1,7 +1,7 @@
 class GameMode:
-    ENDURANCE = "Endurance"
-    SPEED = "Speed"
-    MEMORY = "Memory"
+    ENDURANCE = "Endurance" # Survive as long as possible
+    SPEED = "Speed"         # Beat the clock
+    MEMORY = "Memory"       # Replicate pattern
 
 class Difficulty:
     STANDARD = "Standard"
@@ -15,5 +15,7 @@ class GameplayEngine:
         self.score = 0
         self.active = True
 
-    def update(self, dt):
-        pass
+    def update(self, input_data, dt):
+        if self.mode == GameMode.ENDURANCE:
+            self.score += dt
+        return True

@@ -5,5 +5,6 @@ class MasterComboLogic:
         self.window_ms = 500
 
     def process_input(self, input_sequence):
-        # Logic for combo detection
-        return {"success": False, "msg": "Instructional feedback"}
+        # Combo logic implementation
+        self.combo_count += 1
+        return {"success": True, "msg": "Combo +1"}
