@@ -1,7 +1,7 @@
 class GameMode:
-    ENDURANCE = "Endurance" # Survive as long as possible
-    SPEED = "Speed"         # Beat the clock
-    MEMORY = "Memory"       # Replicate pattern
+    ENDURANCE = "Endurance"
+    SPEED = "Speed"
+    MEMORY = "Memory"
 
 class Difficulty:
     STANDARD = "Standard"

@@ -7,7 +7,8 @@ def run_dry_run():
     
     # Simulate 100 ticks
     for i in range(100):
-        engine.update(0.033)
+        # Fix: Provide the missing input_data argument
+        engine.update({"button_down": []}, 0.033)
         # Random combo simulation
         if random.random() < 0.1:
             print(f"Simulation: Combo success at tick {i}")
