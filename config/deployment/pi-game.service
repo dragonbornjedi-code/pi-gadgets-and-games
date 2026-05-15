@@ -1,0 +1,14 @@
+[Unit]
+Description=Cognitive Reaction Game
+After=multi-user.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/pi-gadgets-and-games
+ExecStart=/home/pi/pi-gadgets-and-games/.venv/bin/python3 games/cognitive_reaction/tests/input_visualizer.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
