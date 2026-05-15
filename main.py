@@ -77,14 +77,14 @@ def main():
         # Memory monitoring every 10 frames (Pi Zero 2W guard)
         if frame_count % 10 == 0 and MEMORY_MONITORING_AVAILABLE:
             mem_mb = get_memory_mb()
-            if mem_mb > 120:
-                print(f"ERROR: Memory exceeded 120MB ({mem_mb:.1f}MB). Graceful shutdown to TitleScreen.")
+            if mem_mb > 200:
+                print(f"ERROR: Memory exceeded 200MB ({mem_mb:.1f}MB). Graceful shutdown to TitleScreen.")
                 state_manager.set_state("TitleScreen")
                 running = False
-            elif mem_mb > 80 and not memory_warning_issued:
+            elif mem_mb > 150 and not memory_warning_issued:
                 print(f"WARNING: Memory usage high ({mem_mb:.1f}MB). Monitor for issues.")
                 memory_warning_issued = True
-            elif mem_mb <= 75:
+            elif mem_mb <= 120:
                 memory_warning_issued = False
         
         if args.max_frames and frame_count >= args.max_frames:
