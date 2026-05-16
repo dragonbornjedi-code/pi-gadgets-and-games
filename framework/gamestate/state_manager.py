@@ -420,8 +420,8 @@ class GameplayState(GameState):
 
         total_frames = session.current_cross_fade_frames
 
-        # Target blank duration ~0.5s -> approximate in frames assuming ~60 FPS
-        blank_frames = 30
+        # Target blank duration ~0.75s -> approximate in frames assuming ~60 FPS
+        blank_frames = 45
 
         # If not enough frames to fit a blank period, fall back to hard cut
         if total_frames <= blank_frames + 2:
