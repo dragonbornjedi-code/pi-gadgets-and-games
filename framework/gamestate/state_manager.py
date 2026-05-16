@@ -386,13 +386,13 @@ class GameplayState(GameState):
             screen.blit(hint, (36, height - 30))
     
     def _draw_button_display(self, screen, session, width):
-        """Draw the button display with mirror cross-fade during playback."""
+        """Draw the button display area during playback and input."""
         button_box = pygame.Rect(34, 112, width - 68, 108)
         pygame.draw.rect(screen, (18, 26, 44), button_box, border_radius=16)
         pygame.draw.rect(screen, (255, 224, 102), button_box, 2, border_radius=16)
 
         if session.phase == "showing" and session.playback_active:
-            # During playback: show mirror cross-fade
+            # During playback: show current control, then blank pause
             self._draw_cross_fade(screen, session, button_box)
         elif session.phase == "input":
             # During input: show all buttons available (grayed out)
@@ -404,72 +404,81 @@ class GameplayState(GameState):
             screen.blit(prompt, prompt.get_rect(center=button_box.center))
     
     def _draw_cross_fade(self, screen, session, button_box):
-        """Draw simplified playback: show current button, blank for ~0.5s, then show next button.
-
-        For very short frame windows (<=15) fall back to a hard cut (show current only).
-        """
+        """Draw simplified playback: show current control, then blank pause."""
         current_button = session.playback_button
 
         if current_button is None:
             return
 
-        # High-tempo / very short frame windows: hard cut
-        if session.current_cross_fade_frames <= 15:
+        # Show control for display window; leave blank for remaining gap window.
+        if session.playback_frame < session.playback_display_frames:
             self._draw_button_with_alpha(screen, current_button, button_box, 255)
-            return
-
-        total_frames = session.current_cross_fade_frames
-
-        # Target blank duration ~0.75s -> approximate in frames assuming ~60 FPS
-        blank_frames = 45
-
-        # If not enough frames to fit a blank period, fall back to hard cut
-        if total_frames <= blank_frames + 2:
-            self._draw_button_with_alpha(screen, current_button, button_box, 255)
-            return
-
-        # Split remaining frames around the blank period: show-current | blank | show-next
-        first_phase_end = (total_frames - blank_frames) // 2
-        second_phase_start = first_phase_end + blank_frames
-
-        pf = session.playback_frame
-
-        # Phase 1: show current button full
-        if pf < first_phase_end:
-            self._draw_button_with_alpha(screen, current_button, button_box, 255)
-            return
-
-        # Phase 2: blank (do not draw any button)
-        if pf < second_phase_start:
-            # Intentionally blank to create a pause between buttons
-            return
-
-        # Phase 3: show next button full (if exists)
-        if session.playback_index + 1 < len(session.sequence):
-            next_button = session.sequence[session.playback_index + 1]
-            self._draw_button_with_alpha(screen, next_button, button_box, 255)
-            return
     
     def _draw_button_with_alpha(self, screen, button_id, button_box, alpha):
         """Draw a button with specified alpha (transparency)."""
         color = BUTTON_COLORS.get(button_id, (255, 255, 255))
-        label = BUTTON_LABELS.get(button_id, "?")
-        
-        # Create a surface for the button with alpha blending
         button_surface = pygame.Surface((button_box.width, button_box.height), pygame.SRCALPHA)
         button_color_with_alpha = (*color, alpha)
-        pygame.draw.circle(button_surface, button_color_with_alpha, 
-                          (button_box.width // 2, button_box.height // 2), 
-                          min(button_box.width, button_box.height) // 3)
-        
-        # Draw label on button
-        label_font = _make_font(40, bold=True)
-        label_text = label_font.render(label, True, (255, 255, 255))
-        label_pos = label_text.get_rect(center=(button_box.width // 2, button_box.height // 2))
-        button_surface.blit(label_text, label_pos)
-        
-        # Blit to screen
+        face_buttons = {
+            InputManager.BUTTON_A,
+            InputManager.BUTTON_B,
+            InputManager.BUTTON_X,
+            InputManager.BUTTON_Y,
+        }
+
+        # Keep ABXY as the classic circle style.
+        if button_id in face_buttons:
+            label = BUTTON_LABELS.get(button_id, "?")
+            pygame.draw.circle(
+                button_surface,
+                button_color_with_alpha,
+                (button_box.width // 2, button_box.height // 2),
+                min(button_box.width, button_box.height) // 3,
+            )
+            label_font = _make_font(40, bold=True)
+            label_text = label_font.render(label, True, (255, 255, 255))
+            label_pos = label_text.get_rect(center=(button_box.width // 2, button_box.height // 2))
+            button_surface.blit(label_text, label_pos)
+            screen.blit(button_surface, button_box.topleft)
+            return
+
+        # Non-ABXY controls use a text card to avoid ambiguous compact symbols.
+        title, subtitle = self._control_prompt(button_id)
+        card_rect = pygame.Rect(24, 14, button_box.width - 48, button_box.height - 28)
+        pygame.draw.rect(button_surface, (24, 34, 56, alpha), card_rect, border_radius=14)
+        pygame.draw.rect(button_surface, button_color_with_alpha, card_rect, 3, border_radius=14)
+
+        title_font = _make_font(32, bold=True)
+        subtitle_font = _make_font(20, bold=True)
+        title_text = title_font.render(title, True, (245, 248, 255))
+        subtitle_text = subtitle_font.render(subtitle, True, (255, 224, 102))
+        button_surface.blit(title_text, title_text.get_rect(center=(button_box.width // 2, button_box.height // 2 - 16)))
+        button_surface.blit(subtitle_text, subtitle_text.get_rect(center=(button_box.width // 2, button_box.height // 2 + 18)))
         screen.blit(button_surface, button_box.topleft)
+
+    def _control_prompt(self, button_id):
+        """Return a clear 2-line prompt for each control."""
+        prompts = {
+            InputManager.DPAD_UP: ("D-PAD", "UP"),
+            InputManager.DPAD_DOWN: ("D-PAD", "DOWN"),
+            InputManager.DPAD_LEFT: ("D-PAD", "LEFT"),
+            InputManager.DPAD_RIGHT: ("D-PAD", "RIGHT"),
+            InputManager.TRIGGER_LT: ("LEFT TRIGGER", "LT"),
+            InputManager.TRIGGER_RT: ("RIGHT TRIGGER", "RT"),
+            InputManager.BUTTON_LB: ("LEFT BUMPER", "LB"),
+            InputManager.BUTTON_RB: ("RIGHT BUMPER", "RB"),
+            InputManager.STICK_LEFT_UP: ("LEFT STICK", "UP"),
+            InputManager.STICK_LEFT_DOWN: ("LEFT STICK", "DOWN"),
+            InputManager.STICK_LEFT_LEFT: ("LEFT STICK", "LEFT"),
+            InputManager.STICK_LEFT_RIGHT: ("LEFT STICK", "RIGHT"),
+            InputManager.STICK_RIGHT_UP: ("RIGHT STICK", "UP"),
+            InputManager.STICK_RIGHT_DOWN: ("RIGHT STICK", "DOWN"),
+            InputManager.STICK_RIGHT_LEFT: ("RIGHT STICK", "LEFT"),
+            InputManager.STICK_RIGHT_RIGHT: ("RIGHT STICK", "RIGHT"),
+            InputManager.BUTTON_L3: ("LEFT STICK", "PRESS (L3)"),
+            InputManager.BUTTON_R3: ("RIGHT STICK", "PRESS (R3)"),
+        }
+        return prompts.get(button_id, ("CONTROL", BUTTON_LABELS.get(button_id, str(button_id))))
     
     def _draw_all_buttons_available(self, screen, button_box):
         """Draw all 4 buttons grayed out during the input phase."""

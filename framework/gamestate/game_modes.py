@@ -240,6 +240,8 @@ class SimonSaysSession:
         self.playback_index = 0
         self.playback_frame = 0
         self.playback_active = False
+        self.playback_extra_display_frames = 30  # +0.5s at ~60 FPS
+        self.playback_blank_frames = 45  # ~0.75s at ~60 FPS
         
         # Dynamic tempo scaling
         self.successful_rounds = 0
@@ -345,7 +347,7 @@ class SimonSaysSession:
         if self.phase == "showing":
             if self.playback_active:
                 self.playback_frame += 1
-                if self.playback_frame >= self.current_cross_fade_frames:
+                if self.playback_frame >= self.playback_total_frames:
                     self.playback_frame = 0
                     self.playback_index += 1
                     if self.playback_index >= len(self.sequence):
@@ -433,6 +435,18 @@ class SimonSaysSession:
         current_alpha = max(0, min(255, int(255 * (1 - progress))))
         
         return current_alpha
+
+    @property
+    def playback_display_frames(self):
+        """How long the current control is shown before the blank gap."""
+        extra_frames = self.playback_extra_display_frames if self.config.time_limit == 0 else 0
+        return max(1, self.current_cross_fade_frames + extra_frames)
+
+    @property
+    def playback_total_frames(self):
+        """Total per-control playback window: visible + blank gap."""
+        gap_frames = self.playback_blank_frames if self.config.time_limit == 0 else 0
+        return self.playback_display_frames + gap_frames
     
     @property
     def next_playback_alpha(self):
