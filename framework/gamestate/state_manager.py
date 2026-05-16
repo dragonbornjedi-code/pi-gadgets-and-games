@@ -404,34 +404,51 @@ class GameplayState(GameState):
             screen.blit(prompt, prompt.get_rect(center=button_box.center))
     
     def _draw_cross_fade(self, screen, session, button_box):
-        """Draw cross-fade: current button fades out, next fades in.
-        
-        For high-tempo (frame_duration <= 15), switches to hard 1-frame cut.
+        """Draw simplified playback: show current button, blank for ~0.5s, then show next button.
+
+        For very short frame windows (<=15) fall back to a hard cut (show current only).
         """
         current_button = session.playback_button
-        
+
         if current_button is None:
             return
-        
-        # Check if high-tempo mode (frame_duration <= 15) - disable alpha blending
+
+        # High-tempo / very short frame windows: hard cut
         if session.current_cross_fade_frames <= 15:
-            # Hard cut: only show current button, no fade
             self._draw_button_with_alpha(screen, current_button, button_box, 255)
             return
-        
-        # Get current button's alpha
-        current_alpha = session.playback_alpha
-        
-        # Draw current button with fading alpha
-        if current_alpha > 0:
-            self._draw_button_with_alpha(screen, current_button, button_box, current_alpha)
-        
-        # Draw next button fading in (if there is a next button)
+
+        total_frames = session.current_cross_fade_frames
+
+        # Target blank duration ~0.5s -> approximate in frames assuming ~60 FPS
+        blank_frames = 30
+
+        # If not enough frames to fit a blank period, fall back to hard cut
+        if total_frames <= blank_frames + 2:
+            self._draw_button_with_alpha(screen, current_button, button_box, 255)
+            return
+
+        # Split remaining frames around the blank period: show-current | blank | show-next
+        first_phase_end = (total_frames - blank_frames) // 2
+        second_phase_start = first_phase_end + blank_frames
+
+        pf = session.playback_frame
+
+        # Phase 1: show current button full
+        if pf < first_phase_end:
+            self._draw_button_with_alpha(screen, current_button, button_box, 255)
+            return
+
+        # Phase 2: blank (do not draw any button)
+        if pf < second_phase_start:
+            # Intentionally blank to create a pause between buttons
+            return
+
+        # Phase 3: show next button full (if exists)
         if session.playback_index + 1 < len(session.sequence):
             next_button = session.sequence[session.playback_index + 1]
-            next_alpha = session.next_playback_alpha
-            if next_alpha > 0:
-                self._draw_button_with_alpha(screen, next_button, button_box, next_alpha)
+            self._draw_button_with_alpha(screen, next_button, button_box, 255)
+            return
     
     def _draw_button_with_alpha(self, screen, button_id, button_box, alpha):
         """Draw a button with specified alpha (transparency)."""
