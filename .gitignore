@@ -4,3 +4,5 @@ __pycache__/
 .env
 *.json
 *.log
+retropie.img
+raspios-bookworm-arm64-lite.img.xz

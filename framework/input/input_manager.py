@@ -1,80 +1,127 @@
 import time
-
 import pygame
 
 
 class InputManager:
-    # Xbox Series X controller mapping - comprehensive input surface
-    
-    # Face buttons (Beginner tier - 4 inputs)
+    # Virtual button IDs for unified logic (independent of hardware)
     BUTTON_A = 0
     BUTTON_B = 1
-    BUTTON_X = 3
-    BUTTON_Y = 4
+    BUTTON_X = 2
+    BUTTON_Y = 3
+    BUTTON_LB = 4
+    BUTTON_RB = 5
+    TRIGGER_LT = 104
+    TRIGGER_RT = 105
+    BUTTON_L3 = 8
+    BUTTON_R3 = 9
+    BUTTON_START = 11
+    BUTTON_SELECT = 10
     
-    # D-Pad directions (Intermediate tier - 4 inputs)
-    # Note: D-pad comes via JOYHATMOTION, mapped as virtual buttons
-    DPAD_UP = 100
-    DPAD_DOWN = 101
-    DPAD_LEFT = 102
-    DPAD_RIGHT = 103
-    
-    # Shoulder buttons / Bumpers (Hard tier - 2 inputs)
-    BUTTON_LB = 6  # Left Bumper / L_SHOULDER
-    BUTTON_RB = 7  # Right Bumper / R_SHOULDER
-    
-    # Trigger buttons (Hard tier - 2 more, total 4)
-    # Triggers are analog, mapped as virtual buttons when pressed
-    TRIGGER_LT = 104  # Left Trigger (Axis 2)
-    TRIGGER_RT = 105  # Right Trigger (Axis 5)
-    
-    # Stick click buttons (Champion tier - 2 inputs)
-    BUTTON_L3 = 8   # Left Stick Click
-    BUTTON_R3 = 9   # Right Stick Click
-    
-    # Analog stick directions (Expert tier - 8 inputs)
-    # Left stick: 4 cardinal directions
+    # Analog stick directions (mapped as virtual buttons)
     STICK_LEFT_UP = 110
     STICK_LEFT_DOWN = 111
     STICK_LEFT_LEFT = 112
     STICK_LEFT_RIGHT = 113
-    
-    # Right stick: 4 cardinal directions
     STICK_RIGHT_UP = 114
     STICK_RIGHT_DOWN = 115
     STICK_RIGHT_LEFT = 116
     STICK_RIGHT_RIGHT = 117
     
-    # System buttons
-    BUTTON_SELECT = 10
-    BUTTON_START = 11
-    BUTTON_XBOX = 12
+    # D-Pad directions (mapped as virtual buttons)
+    DPAD_UP = 100
+    DPAD_DOWN = 101
+    DPAD_LEFT = 102
+    DPAD_RIGHT = 103
+
+    # Controller Mappings
+    MAPPING_XBOX = {
+        "A": 0, "B": 1, "X": 2, "Y": 3,
+        "LB": 4, "RB": 5, "L3": 8, "R3": 9,
+        "START": 7, "SELECT": 6,
+        "LT_AXIS": 2, "RT_AXIS": 5
+    }
+    
+    MAPPING_PS5 = {
+        "A": 0, "B": 1, "X": 2, "Y": 3,  # Adjusted to match common PS5 driver IDs if needed, but let's use the ones from research
+        "LB": 4, "RB": 5, "L3": 10, "R3": 11,
+        "START": 9, "SELECT": 8,
+        "LT_AXIS": 2, "RT_AXIS": 5
+    }
+    
+    # Actual IDs from the user's Pi research:
+    # PS5: y=0, b=1, a=2, x=3, l1=4, r1=5, l2=6, r2=7, select=8, start=9, l3=10, r3=11
+    MAPPING_PS5_RETROPIE = {
+        "Y": 0, "B": 1, "A": 2, "X": 3,
+        "LB": 4, "RB": 5, "LT": 6, "RT": 7, # These are buttons, not axes on some drivers!
+        "SELECT": 8, "START": 9, "L3": 10, "R3": 11,
+        "LT_AXIS": 2, "RT_AXIS": 5 # Defaults for axes
+    }
 
     def __init__(self, deadzone=0.2, trigger_threshold=0.5, cooldown_duration=0.1):
         self.joysticks = {}
+        self.joystick_types = {} # instance_id -> "xbox" or "ps5"
         self.button_states = {}
         self.input_cooldowns = {}
         self.deadzone = deadzone
         self.trigger_threshold = trigger_threshold
         self.cooldown_duration = cooldown_duration
         
-        # Track analog stick state for direction mapping
         self.left_stick = (0.0, 0.0)
         self.right_stick = (0.0, 0.0)
         self.left_trigger = 0.0
         self.right_trigger = 0.0
         self.last_dpad = (0, 0)
+
+    def _get_joystick_type(self, joystick):
+        name = joystick.get_name().lower()
+        if "dualsense" in name or "ps5" in name or "sony" in name:
+            return "ps5"
+        return "xbox"
+
+    def _map_hardware_to_virtual(self, instance_id, hardware_btn_id):
+        j_type = self.joystick_types.get(instance_id, "xbox")
         
-        # Verify 8-directional mapping produces distinct button IDs
-        self._verify_stick_mapping()
+        if j_type == "ps5":
+            # Map based on MAPPING_PS5_RETROPIE
+            mapping = self.MAPPING_PS5_RETROPIE
+            if hardware_btn_id == mapping["A"]: return self.BUTTON_A
+            if hardware_btn_id == mapping["B"]: return self.BUTTON_B
+            if hardware_btn_id == mapping["X"]: return self.BUTTON_X
+            if hardware_btn_id == mapping["Y"]: return self.BUTTON_Y
+            if hardware_btn_id == mapping["LB"]: return self.BUTTON_LB
+            if hardware_btn_id == mapping["RB"]: return self.BUTTON_RB
+            if hardware_btn_id == mapping["START"]: return self.BUTTON_START
+            if hardware_btn_id == mapping["SELECT"]: return self.BUTTON_SELECT
+            if hardware_btn_id == mapping["L3"]: return self.BUTTON_L3
+            if hardware_btn_id == mapping["R3"]: return self.BUTTON_R3
+            if hardware_btn_id == mapping["LT"]: return self.TRIGGER_LT
+            if hardware_btn_id == mapping["RT"]: return self.TRIGGER_RT
+        else:
+            # Default Xbox-ish mapping
+            if hardware_btn_id == 0: return self.BUTTON_A
+            if hardware_btn_id == 1: return self.BUTTON_B
+            if hardware_btn_id == 2: return self.BUTTON_X
+            if hardware_btn_id == 3: return self.BUTTON_Y
+            if hardware_btn_id == 4: return self.BUTTON_LB
+            if hardware_btn_id == 5: return self.BUTTON_RB
+            if hardware_btn_id == 6: return self.BUTTON_SELECT
+            if hardware_btn_id == 7: return self.BUTTON_START
+            if hardware_btn_id == 8: return self.BUTTON_L3
+            if hardware_btn_id == 9: return self.BUTTON_R3
+            
+        return hardware_btn_id # Fallback
 
     def _attach_joystick(self, device_index):
         joystick = pygame.joystick.Joystick(device_index)
         joystick.init()
-        self.joysticks[joystick.get_instance_id()] = joystick
+        instance_id = joystick.get_instance_id()
+        self.joysticks[instance_id] = joystick
+        self.joystick_types[instance_id] = self._get_joystick_type(joystick)
+        print(f"INFO: Attached {joystick.get_name()} (Type: {self.joystick_types[instance_id]})")
         return joystick
 
     def _detach_joystick(self, instance_id):
+        self.joystick_types.pop(instance_id, None)
         joystick = self.joysticks.pop(instance_id, None)
         if joystick is not None:
             joystick.quit()
@@ -85,7 +132,6 @@ class InputManager:
             "button_up": [],
             "button_held": [],
             "dpad": (0, 0),
-            "axis": (0.0, 0.0),
             "left_stick": (0.0, 0.0),
             "right_stick": (0.0, 0.0),
             "left_trigger": 0.0,
@@ -94,10 +140,8 @@ class InputManager:
             "disconnected": [],
         }
 
-        # Defensive: check for event queue overflow
         if len(events) > 100:
-            print(f"WARNING: Event queue overflow detected ({len(events)} events). Flushing.")
-            events = events[-100:]  # Keep only last 100 events
+            events = events[-100:]
 
         for event in events:
             try:
@@ -108,26 +152,25 @@ class InputManager:
                     instance_id = getattr(event, "instance_id", -1)
                     processed_input["disconnected"].append(instance_id)
                     self._detach_joystick(instance_id)
-                    print(f"INFO: Joystick {instance_id} disconnected")
                 elif event.type == pygame.JOYBUTTONDOWN:
                     instance_id = getattr(event, "instance_id", -1)
-                    button_id = getattr(event, "button", None)
-                    if button_id is not None and self._accept_button(instance_id, button_id):
-                        self.button_states[(instance_id, button_id)] = True
-                        processed_input["button_down"].append(button_id)
+                    hw_btn = getattr(event, "button", None)
+                    if hw_btn is not None:
+                        virt_btn = self._map_hardware_to_virtual(instance_id, hw_btn)
+                        if self._accept_button(instance_id, virt_btn):
+                            self.button_states[(instance_id, virt_btn)] = True
+                            processed_input["button_down"].append(virt_btn)
                 elif event.type == pygame.JOYBUTTONUP:
                     instance_id = getattr(event, "instance_id", -1)
-                    button_id = getattr(event, "button", None)
-                    if button_id is not None:
-                        self.button_states[(instance_id, button_id)] = False
-                        processed_input["button_up"].append(button_id)
+                    hw_btn = getattr(event, "button", None)
+                    if hw_btn is not None:
+                        virt_btn = self._map_hardware_to_virtual(instance_id, hw_btn)
+                        self.button_states[(instance_id, virt_btn)] = False
+                        processed_input["button_up"].append(virt_btn)
                 elif event.type == pygame.JOYHATMOTION:
                     processed_input["dpad"] = event.value
-                    self.last_dpad = event.value
-                    # Map D-pad to virtual button events
                     self._map_dpad_to_buttons(event.value, processed_input)
                 elif event.type == pygame.JOYAXISMOTION:
-                    # Handle all analog axes: sticks and triggers
                     self._handle_axis_motion(event, processed_input)
                 elif event.type == pygame.KEYDOWN:
                     self._apply_keyboard_down(event, processed_input)
@@ -135,216 +178,107 @@ class InputManager:
                     self._apply_keyboard_up(event, processed_input)
             except Exception as e:
                 print(f"WARNING: Error processing event {event.type}: {e}")
-                continue
 
-        for (instance_id, button_id), pressed in self.button_states.items():
-            if pressed and button_id not in processed_input["button_held"]:
-                processed_input["button_held"].append(button_id)
+        for (instance_id, btn_id), pressed in self.button_states.items():
+            if pressed and btn_id not in processed_input["button_held"]:
+                processed_input["button_held"].append(btn_id)
 
         return processed_input
 
     def _map_dpad_to_buttons(self, dpad_value, processed_input):
-        """Map D-pad HAT motion to virtual button events for sequence generation."""
         dx, dy = dpad_value
+        if dy == 1: self._trigger_virt_btn(self.DPAD_UP, processed_input)
+        elif dy == -1: self._trigger_virt_btn(self.DPAD_DOWN, processed_input)
+        if dx == -1: self._trigger_virt_btn(self.DPAD_LEFT, processed_input)
+        elif dx == 1: self._trigger_virt_btn(self.DPAD_RIGHT, processed_input)
         
-        if dy == -1 and self._accept_button(-1, self.DPAD_UP):
-            processed_input["button_down"].append(self.DPAD_UP)
-            self.button_states[(-1, self.DPAD_UP)] = True
-        elif dy == 1 and self._accept_button(-1, self.DPAD_DOWN):
-            processed_input["button_down"].append(self.DPAD_DOWN)
-            self.button_states[(-1, self.DPAD_DOWN)] = True
-        
-        if dx == -1 and self._accept_button(-1, self.DPAD_LEFT):
-            processed_input["button_down"].append(self.DPAD_LEFT)
-            self.button_states[(-1, self.DPAD_LEFT)] = True
-        elif dx == 1 and self._accept_button(-1, self.DPAD_RIGHT):
-            processed_input["button_down"].append(self.DPAD_RIGHT)
-            self.button_states[(-1, self.DPAD_RIGHT)] = True
-        
-        # Clear D-pad buttons when neutral
         if dpad_value == (0, 0):
-            for dpad_btn in [self.DPAD_UP, self.DPAD_DOWN, self.DPAD_LEFT, self.DPAD_RIGHT]:
-                self.button_states[(-1, dpad_btn)] = False
-    
+            for b in [self.DPAD_UP, self.DPAD_DOWN, self.DPAD_LEFT, self.DPAD_RIGHT]:
+                self.button_states[(-1, b)] = False
+
+    def _trigger_virt_btn(self, btn_id, processed_input):
+        if self._accept_button(-1, btn_id):
+            processed_input["button_down"].append(btn_id)
+            self.button_states[(-1, btn_id)] = True
+
     def _handle_axis_motion(self, event, processed_input):
-        """Handle analog axes: sticks (0,1,3,4) and triggers (2,5)."""
-        axis_index = event.axis
-        value = event.value
+        axis = event.axis
+        val = max(-1.0, min(1.0, event.value))
+        if abs(val) < self.deadzone: val = 0.0
         
-        # Defensive: clamp trigger values to [-1.0, 1.0]
-        value = max(-1.0, min(1.0, value))
+        j_type = self.joystick_types.get(event.instance_id, "xbox")
         
-        # Apply deadzone
-        if abs(value) < self.deadzone:
-            value = 0.0
+        # Mapping axes (0,1 = Left Stick, 2 = LT, 3,4 = Right Stick, 5 = RT)
+        if axis == 0: self.left_stick = (val, self.left_stick[1])
+        elif axis == 1: self.left_stick = (self.left_stick[0], val)
+        elif axis == 2: self.left_trigger = val
+        elif axis == 3: self.right_stick = (val, self.right_stick[1])
+        elif axis == 4: self.right_stick = (self.right_stick[0], val)
+        elif axis == 5: self.right_trigger = val
         
-        # Triggers (axes 2 and 5)
-        if axis_index == 2:  # LT
-            self.left_trigger = value
-            processed_input["left_trigger"] = value
-            # Map to virtual button when pressed
-            if value > self.trigger_threshold and self._accept_button(-1, self.TRIGGER_LT):
-                processed_input["button_down"].append(self.TRIGGER_LT)
-                self.button_states[(-1, self.TRIGGER_LT)] = True
-            elif value <= self.trigger_threshold:
-                self.button_states[(-1, self.TRIGGER_LT)] = False
+        processed_input["left_stick"] = self.left_stick
+        processed_input["right_stick"] = self.right_stick
+        processed_input["left_trigger"] = self.left_trigger
+        processed_input["right_trigger"] = self.right_trigger
+
+        # Map stick directions to virtual buttons
+        self._map_stick_directions(self.left_stick, "left", processed_input)
+        self._map_stick_directions(self.right_stick, "right", processed_input)
+
+    def _map_stick_directions(self, pos, side, processed_input):
+        x, y = pos
+        thresh = self.deadzone * 2.0
+        btns = {
+            "left": [self.STICK_LEFT_UP, self.STICK_LEFT_DOWN, self.STICK_LEFT_LEFT, self.STICK_LEFT_RIGHT],
+            "right": [self.STICK_RIGHT_UP, self.STICK_RIGHT_DOWN, self.STICK_RIGHT_LEFT, self.STICK_RIGHT_RIGHT]
+        }[side]
         
-        elif axis_index == 5:  # RT
-            self.right_trigger = value
-            processed_input["right_trigger"] = value
-            # Map to virtual button when pressed
-            if value > self.trigger_threshold and self._accept_button(-1, self.TRIGGER_RT):
-                processed_input["button_down"].append(self.TRIGGER_RT)
-                self.button_states[(-1, self.TRIGGER_RT)] = True
-            elif value <= self.trigger_threshold:
-                self.button_states[(-1, self.TRIGGER_RT)] = False
+        if y < -thresh: self._trigger_virt_btn(btns[0], processed_input)
+        else: self.button_states[(-1, btns[0])] = False
         
-        # Left stick (axes 0, 1)
-        elif axis_index == 0:  # Left stick X
-            self.left_stick = (value, self.left_stick[1])
-            processed_input["left_stick"] = self.left_stick
-            self._map_stick_directions(self.left_stick, "left", processed_input)
+        if y > thresh: self._trigger_virt_btn(btns[1], processed_input)
+        else: self.button_states[(-1, btns[1])] = False
         
-        elif axis_index == 1:  # Left stick Y
-            self.left_stick = (self.left_stick[0], value)
-            processed_input["left_stick"] = self.left_stick
-            self._map_stick_directions(self.left_stick, "left", processed_input)
+        if x < -thresh: self._trigger_virt_btn(btns[2], processed_input)
+        else: self.button_states[(-1, btns[2])] = False
         
-        # Right stick (axes 3, 4)
-        elif axis_index == 3:  # Right stick X
-            self.right_stick = (value, self.right_stick[1])
-            processed_input["right_stick"] = self.right_stick
-            self._map_stick_directions(self.right_stick, "right", processed_input)
-        
-        elif axis_index == 4:  # Right stick Y
-            self.right_stick = (self.right_stick[0], value)
-            processed_input["right_stick"] = self.right_stick
-            self._map_stick_directions(self.right_stick, "right", processed_input)
-    
-    def _map_stick_directions(self, stick_pos, stick_name, processed_input):
-        """Map analog stick to 4-directional virtual buttons."""
-        x, y = stick_pos
-        stick_deadzone = self.deadzone * 1.5  # Slightly higher threshold for stick directions
-        
-        if stick_name == "left":
-            buttons = {
-                "up": self.STICK_LEFT_UP,
-                "down": self.STICK_LEFT_DOWN,
-                "left": self.STICK_LEFT_LEFT,
-                "right": self.STICK_LEFT_RIGHT,
-            }
-        else:  # right
-            buttons = {
-                "up": self.STICK_RIGHT_UP,
-                "down": self.STICK_RIGHT_DOWN,
-                "left": self.STICK_RIGHT_LEFT,
-                "right": self.STICK_RIGHT_RIGHT,
-            }
-        
-        # Map stick directions to button presses
-        if y < -stick_deadzone and self._accept_button(-1, buttons["up"]):
-            processed_input["button_down"].append(buttons["up"])
-            self.button_states[(-1, buttons["up"])] = True
-        elif y >= -stick_deadzone:
-            self.button_states[(-1, buttons["up"])] = False
-        
-        if y > stick_deadzone and self._accept_button(-1, buttons["down"]):
-            processed_input["button_down"].append(buttons["down"])
-            self.button_states[(-1, buttons["down"])] = True
-        elif y <= stick_deadzone:
-            self.button_states[(-1, buttons["down"])] = False
-        
-        if x < -stick_deadzone and self._accept_button(-1, buttons["left"]):
-            processed_input["button_down"].append(buttons["left"])
-            self.button_states[(-1, buttons["left"])] = True
-        elif x >= -stick_deadzone:
-            self.button_states[(-1, buttons["left"])] = False
-        
-        if x > stick_deadzone and self._accept_button(-1, buttons["right"]):
-            processed_input["button_down"].append(buttons["right"])
-            self.button_states[(-1, buttons["right"])] = True
-        elif x <= stick_deadzone:
-            self.button_states[(-1, buttons["right"])] = False
-    
+        if x > thresh: self._trigger_virt_btn(btns[3], processed_input)
+        else: self.button_states[(-1, btns[3])] = False
+
     def _apply_keyboard_down(self, event, processed_input):
-        if event.key in (pygame.K_RETURN, pygame.K_SPACE):
-            processed_input["button_down"].append(self.BUTTON_START)
-            self.button_states[(-1, self.BUTTON_START)] = True
-        elif event.key in (pygame.K_b, pygame.K_BACKSPACE):
-            processed_input["button_down"].append(self.BUTTON_B)
-            self.button_states[(-1, self.BUTTON_B)] = True
-        elif event.key == pygame.K_UP:
-            processed_input["dpad"] = (0, -1)
-        elif event.key == pygame.K_DOWN:
-            processed_input["dpad"] = (0, 1)
-        elif event.key == pygame.K_LEFT:
-            processed_input["dpad"] = (-1, 0)
-        elif event.key == pygame.K_RIGHT:
-            processed_input["dpad"] = (1, 0)
+        mapping = {
+            pygame.K_RETURN: self.BUTTON_START,
+            pygame.K_SPACE: self.BUTTON_START,
+            pygame.K_b: self.BUTTON_B,
+            pygame.K_ESCAPE: self.BUTTON_B,
+            pygame.K_UP: self.DPAD_UP,
+            pygame.K_DOWN: self.DPAD_DOWN,
+            pygame.K_LEFT: self.DPAD_LEFT,
+            pygame.K_RIGHT: self.DPAD_RIGHT,
+            pygame.K_a: self.BUTTON_A,
+            pygame.K_s: self.BUTTON_B,
+            pygame.K_x: self.BUTTON_X,
+            pygame.K_y: self.BUTTON_Y,
+        }
+        if event.key in mapping:
+            btn = mapping[event.key]
+            if btn >= 100: # DPAD
+                processed_input["dpad"] = {self.DPAD_UP: (0, 1), self.DPAD_DOWN: (0, -1), self.DPAD_LEFT: (-1, 0), self.DPAD_RIGHT: (1, 0)}[btn]
+            else:
+                processed_input["button_down"].append(btn)
+                self.button_states[(-1, btn)] = True
 
     def _apply_keyboard_up(self, event, processed_input):
-        if event.key in (pygame.K_RETURN, pygame.K_SPACE):
-            self.button_states[(-1, self.BUTTON_START)] = False
-            processed_input["button_up"].append(self.BUTTON_START)
-        elif event.key in (pygame.K_b, pygame.K_BACKSPACE):
-            self.button_states[(-1, self.BUTTON_B)] = False
-            processed_input["button_up"].append(self.BUTTON_B)
+        # Keyboard reset not strictly needed for this logic but good for completeness
+        pass
 
     def _accept_button(self, instance_id, button_id):
         now = time.monotonic()
-        cooldown_key = (instance_id, button_id)
-        last_input = self.input_cooldowns.get(cooldown_key, 0.0)
-        if now - last_input < self.cooldown_duration:
+        key = (instance_id, button_id)
+        if now - self.input_cooldowns.get(key, 0) < self.cooldown_duration:
             return False
-
-        self.input_cooldowns[cooldown_key] = now
+        self.input_cooldowns[key] = now
         return True
 
-    def _update_axis(self, current_axis, axis_index, value):
-        x, y = current_axis
-        if abs(value) < self.deadzone:
-            value = 0.0
-
-        if axis_index == 0:
-            x = value
-        elif axis_index == 1:
-            y = value
-
-        return (x, y)
-
     def is_button_pressed(self, button_id):
-        return any(
-            pressed for (instance_id, current_button), pressed in self.button_states.items()
-            if current_button == button_id and pressed
-        )
-
-    def _verify_stick_mapping(self):
-        """Verify that 8-directional mapping produces exactly 8 distinct button IDs."""
-        button_ids = [
-            self.STICK_LEFT_UP, self.STICK_LEFT_DOWN, self.STICK_LEFT_LEFT, self.STICK_LEFT_RIGHT,
-            self.STICK_RIGHT_UP, self.STICK_RIGHT_DOWN, self.STICK_RIGHT_LEFT, self.STICK_RIGHT_RIGHT,
-        ]
-        
-        # Print verification table
-        print("\n=== INPUT MAPPING VERIFICATION TABLE ===")
-        print(f"{'Direction':<20} {'Button ID':<12}")
-        print("-" * 32)
-        print(f"{'Left Stick UP':<20} {self.STICK_LEFT_UP:<12}")
-        print(f"{'Left Stick DOWN':<20} {self.STICK_LEFT_DOWN:<12}")
-        print(f"{'Left Stick LEFT':<20} {self.STICK_LEFT_LEFT:<12}")
-        print(f"{'Left Stick RIGHT':<20} {self.STICK_LEFT_RIGHT:<12}")
-        print(f"{'Right Stick UP':<20} {self.STICK_RIGHT_UP:<12}")
-        print(f"{'Right Stick DOWN':<20} {self.STICK_RIGHT_DOWN:<12}")
-        print(f"{'Right Stick LEFT':<20} {self.STICK_RIGHT_LEFT:<12}")
-        print(f"{'Right Stick RIGHT':<20} {self.STICK_RIGHT_RIGHT:<12}")
-        print("-" * 32)
-        
-        # Verify distinct values
-        if len(button_ids) == len(set(button_ids)):
-            print(f"✓ All 8 button IDs are DISTINCT")
-        else:
-            print(f"✗ WARNING: Duplicate button IDs detected!")
-            duplicates = [bid for bid in set(button_ids) if button_ids.count(bid) > 1]
-            print(f"  Duplicates: {duplicates}")
-        
-        print("=====================================\n")
+        return any(v for (iid, bid), v in self.button_states.items() if bid == button_id)

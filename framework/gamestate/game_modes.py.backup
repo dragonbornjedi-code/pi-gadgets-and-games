@@ -1,0 +1,373 @@
+import random
+import math
+from dataclasses import dataclass
+from enum import Enum
+
+from framework.input.input_manager import InputManager
+
+
+class GameMode(Enum):
+    """7 distinct game modes for progressive cognitive training."""
+    MEMORY_STANDARD = "Memory (Standard)"
+    MEMORY_BACKWARDS = "Memory (Backwards)"
+    SPEED_ATTACK = "Speed Attack"
+    ENDURANCE_STANDARD = "Endurance (Standard)"
+    ENDURANCE_BACKWARDS = "Endurance (Backwards)"
+    MASTER_CHALLENGE = "Master Challenge"
+    MASTER_REVERSE_CHALLENGE = "Master Reverse"
+
+
+class Difficulty(Enum):
+    STANDARD = "Standard"
+    ADVANCED = "Advanced"
+    MASTER = "Master"
+
+
+BUTTON_SEQUENCE = (
+    InputManager.BUTTON_A,      # 0 = Green
+    InputManager.BUTTON_B,      # 1 = Red
+    InputManager.BUTTON_X,      # 3 = Blue
+    InputManager.BUTTON_Y,      # 4 = Yellow
+)
+
+BUTTON_LABELS = {
+    InputManager.BUTTON_A: "A",
+    InputManager.BUTTON_B: "B",
+    InputManager.BUTTON_X: "X",
+    InputManager.BUTTON_Y: "Y",
+}
+
+# Hardware color mapping for cross-fade rendering
+BUTTON_COLORS = {
+    InputManager.BUTTON_A: (99, 230, 32),      # Green
+    InputManager.BUTTON_B: (230, 30, 30),      # Red
+    InputManager.BUTTON_X: (30, 136, 230),     # Blue
+    InputManager.BUTTON_Y: (245, 197, 0),      # Yellow
+}
+
+
+@dataclass(frozen=True)
+class ModeConfig:
+    """Configuration for each game mode/difficulty combination."""
+    initial_sequence_length: int
+    cross_fade_frames: int  # 30 frames = 1 second at 30 FPS
+    frame_gap: int  # frames between button flashes
+    time_limit: float  # 0 = no timer
+    max_rounds: int  # 0 = infinite
+    score_step: int
+    grows_sequence: bool  # True: sequence +1 per round
+    timer_reward_pct: float  # % of remaining time to add back (Endurance/Master modes)
+
+
+# New comprehensive mode configuration with dynamic tempo scaling
+MODE_CONFIG = {
+    # Memory (Standard): No timer, growing sequence, normal order
+    (GameMode.MEMORY_STANDARD, Difficulty.STANDARD): ModeConfig(
+        initial_sequence_length=3, cross_fade_frames=30, frame_gap=0, time_limit=0, 
+        max_rounds=5, score_step=20, grows_sequence=True, timer_reward_pct=0
+    ),
+    (GameMode.MEMORY_STANDARD, Difficulty.ADVANCED): ModeConfig(
+        initial_sequence_length=4, cross_fade_frames=30, frame_gap=0, time_limit=0, 
+        max_rounds=6, score_step=24, grows_sequence=True, timer_reward_pct=0
+    ),
+    (GameMode.MEMORY_STANDARD, Difficulty.MASTER): ModeConfig(
+        initial_sequence_length=5, cross_fade_frames=30, frame_gap=0, time_limit=0, 
+        max_rounds=7, score_step=30, grows_sequence=True, timer_reward_pct=0
+    ),
+
+    # Memory (Backwards): No timer, growing sequence, reverse order input
+    (GameMode.MEMORY_BACKWARDS, Difficulty.STANDARD): ModeConfig(
+        initial_sequence_length=3, cross_fade_frames=30, frame_gap=0, time_limit=0, 
+        max_rounds=5, score_step=25, grows_sequence=True, timer_reward_pct=0
+    ),
+    (GameMode.MEMORY_BACKWARDS, Difficulty.ADVANCED): ModeConfig(
+        initial_sequence_length=4, cross_fade_frames=30, frame_gap=0, time_limit=0, 
+        max_rounds=6, score_step=30, grows_sequence=True, timer_reward_pct=0
+    ),
+    (GameMode.MEMORY_BACKWARDS, Difficulty.MASTER): ModeConfig(
+        initial_sequence_length=5, cross_fade_frames=30, frame_gap=0, time_limit=0, 
+        max_rounds=7, score_step=35, grows_sequence=True, timer_reward_pct=0
+    ),
+
+    # Speed Attack: 60s fixed timer, static sequence, normal order
+    (GameMode.SPEED_ATTACK, Difficulty.STANDARD): ModeConfig(
+        initial_sequence_length=3, cross_fade_frames=25, frame_gap=0, time_limit=60.0, 
+        max_rounds=0, score_step=15, grows_sequence=False, timer_reward_pct=0
+    ),
+    (GameMode.SPEED_ATTACK, Difficulty.ADVANCED): ModeConfig(
+        initial_sequence_length=4, cross_fade_frames=20, frame_gap=0, time_limit=60.0, 
+        max_rounds=0, score_step=18, grows_sequence=False, timer_reward_pct=0
+    ),
+    (GameMode.SPEED_ATTACK, Difficulty.MASTER): ModeConfig(
+        initial_sequence_length=5, cross_fade_frames=15, frame_gap=0, time_limit=60.0, 
+        max_rounds=0, score_step=22, grows_sequence=False, timer_reward_pct=0
+    ),
+
+    # Endurance (Standard): Timer with 50% reward, static sequence, normal order
+    (GameMode.ENDURANCE_STANDARD, Difficulty.STANDARD): ModeConfig(
+        initial_sequence_length=3, cross_fade_frames=28, frame_gap=0, time_limit=30.0, 
+        max_rounds=0, score_step=16, grows_sequence=False, timer_reward_pct=0.5
+    ),
+    (GameMode.ENDURANCE_STANDARD, Difficulty.ADVANCED): ModeConfig(
+        initial_sequence_length=4, cross_fade_frames=24, frame_gap=0, time_limit=30.0, 
+        max_rounds=0, score_step=20, grows_sequence=False, timer_reward_pct=0.5
+    ),
+    (GameMode.ENDURANCE_STANDARD, Difficulty.MASTER): ModeConfig(
+        initial_sequence_length=5, cross_fade_frames=20, frame_gap=0, time_limit=30.0, 
+        max_rounds=0, score_step=25, grows_sequence=False, timer_reward_pct=0.5
+    ),
+
+    # Endurance (Backwards): Timer with 50% reward, static sequence, reverse order input
+    (GameMode.ENDURANCE_BACKWARDS, Difficulty.STANDARD): ModeConfig(
+        initial_sequence_length=3, cross_fade_frames=28, frame_gap=0, time_limit=30.0, 
+        max_rounds=0, score_step=18, grows_sequence=False, timer_reward_pct=0.5
+    ),
+    (GameMode.ENDURANCE_BACKWARDS, Difficulty.ADVANCED): ModeConfig(
+        initial_sequence_length=4, cross_fade_frames=24, frame_gap=0, time_limit=30.0, 
+        max_rounds=0, score_step=22, grows_sequence=False, timer_reward_pct=0.5
+    ),
+    (GameMode.ENDURANCE_BACKWARDS, Difficulty.MASTER): ModeConfig(
+        initial_sequence_length=5, cross_fade_frames=20, frame_gap=0, time_limit=30.0, 
+        max_rounds=0, score_step=28, grows_sequence=False, timer_reward_pct=0.5
+    ),
+
+    # Master Challenge: Timer with 50% reward + growing sequence, normal order
+    (GameMode.MASTER_CHALLENGE, Difficulty.STANDARD): ModeConfig(
+        initial_sequence_length=2, cross_fade_frames=28, frame_gap=0, time_limit=30.0, 
+        max_rounds=0, score_step=25, grows_sequence=True, timer_reward_pct=0.5
+    ),
+    (GameMode.MASTER_CHALLENGE, Difficulty.ADVANCED): ModeConfig(
+        initial_sequence_length=3, cross_fade_frames=24, frame_gap=0, time_limit=30.0, 
+        max_rounds=0, score_step=30, grows_sequence=True, timer_reward_pct=0.5
+    ),
+    (GameMode.MASTER_CHALLENGE, Difficulty.MASTER): ModeConfig(
+        initial_sequence_length=4, cross_fade_frames=20, frame_gap=0, time_limit=30.0, 
+        max_rounds=0, score_step=35, grows_sequence=True, timer_reward_pct=0.5
+    ),
+
+    # Master Reverse Challenge: Timer with 50% reward + growing sequence, reverse order input
+    (GameMode.MASTER_REVERSE_CHALLENGE, Difficulty.STANDARD): ModeConfig(
+        initial_sequence_length=2, cross_fade_frames=28, frame_gap=0, time_limit=30.0, 
+        max_rounds=0, score_step=30, grows_sequence=True, timer_reward_pct=0.5
+    ),
+    (GameMode.MASTER_REVERSE_CHALLENGE, Difficulty.ADVANCED): ModeConfig(
+        initial_sequence_length=3, cross_fade_frames=24, frame_gap=0, time_limit=30.0, 
+        max_rounds=0, score_step=35, grows_sequence=True, timer_reward_pct=0.5
+    ),
+    (GameMode.MASTER_REVERSE_CHALLENGE, Difficulty.MASTER): ModeConfig(
+        initial_sequence_length=4, cross_fade_frames=20, frame_gap=0, time_limit=30.0, 
+        max_rounds=0, score_step=40, grows_sequence=True, timer_reward_pct=0.5
+    ),
+}
+
+
+class SimonSaysSession:
+    """Core game engine supporting 7 modes with dynamic tempo scaling and mirrored cross-fade."""
+    
+    def __init__(self, mode, difficulty):
+        self.mode = mode
+        self.difficulty = difficulty
+        self.config = MODE_CONFIG[(mode, difficulty)]
+        
+        # Game state
+        self.sequence = []
+        self.user_input = []
+        self.round_count = 0
+        self.score = 0
+        self.time_remaining = self.config.time_limit
+        self.phase = "showing"  # "showing", "input", "feedback"
+        self.feedback = "Get ready"
+        self.completed = False
+        self.failed = False
+        self.failure_reason = ""
+        
+        # Playback state for 30-frame mirror cross-fade
+        self.playback_index = 0
+        self.playback_frame = 0
+        self.playback_active = False
+        
+        # Dynamic tempo scaling: every 3 rounds, reduce cross_fade_frames by 5%
+        self.successful_rounds = 0
+        self.current_cross_fade_frames = self.config.cross_fade_frames
+        self.min_cross_fade_frames = 10  # Floor: never faster than 10 frames
+        
+        self._build_sequence()
+    
+    def _build_sequence(self):
+        """Build the next sequence based on mode configuration."""
+        if self.config.grows_sequence:
+            # Sequence grows by 1 each successful round
+            length = self.config.initial_sequence_length + self.successful_rounds
+        else:
+            # Static sequence length
+            length = self.config.initial_sequence_length
+        
+        self.sequence = [random.choice(BUTTON_SEQUENCE) for _ in range(length)]
+        self.user_input = []
+        self.playback_index = 0
+        self.playback_frame = 0
+        self.playback_active = True
+        self.phase = "showing"
+        self.feedback = "Watch the pattern"
+    
+    def _update_tempo(self):
+        """Apply dynamic tempo scaling: every 3 rounds, speed increases by 5%."""
+        # Calculate new cross_fade_frames based on successful rounds completed
+        scale_factor = 0.95 ** (self.successful_rounds // 3)
+        new_frames = max(
+            self.min_cross_fade_frames,
+            int(self.config.cross_fade_frames * scale_factor)
+        )
+        
+        if new_frames < self.current_cross_fade_frames:
+            # Speed just increased—trigger feedback
+            self.feedback = "Speed Up!"
+        
+        self.current_cross_fade_frames = new_frames
+    
+    def _validate_input(self, button_id):
+        """Check if the input matches the expected sequence position."""
+        expected_button = self.sequence[len(self.user_input)]
+        
+        # For backwards modes, compare against reversed sequence
+        if self.mode in (GameMode.MEMORY_BACKWARDS, GameMode.ENDURANCE_BACKWARDS, 
+                         GameMode.MASTER_REVERSE_CHALLENGE):
+            reversed_seq = self.sequence[::-1]
+            expected_button = reversed_seq[len(self.user_input)]
+        
+        return button_id == expected_button
+    
+    def update(self, input_data, dt):
+        """Update game state each frame."""
+        if self.completed or self.failed:
+            return
+        
+        # Update timer for time-limited modes
+        if self.config.time_limit > 0:
+            self.time_remaining -= dt
+            if self.time_remaining <= 0:
+                self.time_remaining = 0
+                self.failed = True
+                self.failure_reason = "Time expired"
+                self.feedback = "Time's up!"
+                return
+        
+        # Handle "showing" phase: play back the sequence
+        if self.phase == "showing":
+            if self.playback_active:
+                self.playback_frame += 1
+                if self.playback_frame >= self.current_cross_fade_frames:
+                    self.playback_frame = 0
+                    self.playback_index += 1
+                    if self.playback_index >= len(self.sequence):
+                        # Playback complete
+                        self.playback_active = False
+                        self.phase = "input"
+                        self.feedback = "Your turn!"
+            return
+        
+        # Handle "input" phase: accept player input
+        if self.phase == "input":
+            for button_id in input_data["button_down"]:
+                if self._validate_input(button_id):
+                    self.user_input.append(button_id)
+                    self.score += self.config.score_step
+                    
+                    # Check if sequence is complete
+                    if len(self.user_input) >= len(self.sequence):
+                        self._round_complete()
+                        return
+                else:
+                    # Wrong button pressed
+                    self.failed = True
+                    self.failure_reason = f"Wrong button"
+                    self.feedback = f"Mistake! Try again."
+                    return
+    
+    def _round_complete(self):
+        """Handle successful round completion."""
+        self.successful_rounds += 1
+        self.round_count += 1
+        
+        # Check if we've reached max rounds (for Memory modes)
+        if self.config.max_rounds > 0 and self.successful_rounds >= self.config.max_rounds:
+            self.completed = True
+            self.feedback = "Pattern complete!"
+            return
+        
+        # Add time reward for Endurance/Master modes
+        if self.config.timer_reward_pct > 0:
+            reward = self.time_remaining * self.config.timer_reward_pct
+            self.time_remaining += reward
+            self.feedback = f"Success! +{reward:.1f}s"
+        else:
+            self.feedback = "Great! Next round..."
+        
+        # Update tempo scaling
+        self._update_tempo()
+        
+        # Build next sequence
+        self._build_sequence()
+    
+    def restart(self):
+        """Reset for a new session."""
+        self.__init__(self.mode, self.difficulty)
+    
+    @property
+    def prompt_label(self):
+        """Return the sequence as a button label string."""
+        return " ".join(BUTTON_LABELS[b] for b in self.sequence)
+    
+    @property
+    def playback_button(self):
+        """Get the button currently being displayed during playback."""
+        if self.playback_active and self.playback_index < len(self.sequence):
+            return self.sequence[self.playback_index]
+        return None
+    
+    @property
+    def playback_alpha(self):
+        """Calculate the alpha (0-255) for the current button during 30-frame cross-fade."""
+        if not self.playback_active or self.playback_index >= len(self.sequence):
+            return 0
+        
+        # Current button fades out as next fades in
+        progress = min(1.0, self.playback_frame / self.current_cross_fade_frames)
+        
+        # Current button: 255 -> 0
+        current_alpha = max(0, min(255, int(255 * (1 - progress))))
+        
+        return current_alpha
+    
+    @property
+    def next_playback_alpha(self):
+        """Calculate alpha for the next button during 30-frame cross-fade."""
+        if self.playback_index + 1 >= len(self.sequence):
+            return 0
+        
+        progress = min(1.0, self.playback_frame / self.current_cross_fade_frames)
+        # Next button: 0 -> 255
+        next_alpha = max(0, min(255, int(255 * progress)))
+        
+        return next_alpha
+    
+    def progress_label(self):
+        """Return a progress indicator based on the game mode."""
+        if self.config.time_limit > 0:
+            return f"Time: {self.time_remaining:0.1f}s"
+        if self.config.grows_sequence:
+            return f"Round {self.successful_rounds + 1}"
+        if self.config.max_rounds > 0:
+            return f"Path {self.successful_rounds + 1}/{self.config.max_rounds}"
+        return f"Score {self.score}"
+
+
+class GameplayEngine:
+    """Compatibility shim to maintain old API."""
+    def __init__(self, mode, difficulty):
+        self.session = SimonSaysSession(mode, difficulty)
+    
+    def update(self, input_data, dt):
+        self.session.update(input_data, dt)
+        return not (self.session.failed or self.session.completed)
+

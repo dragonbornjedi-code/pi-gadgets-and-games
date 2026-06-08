@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Pi Gadgets and Games
+Comment=Launch the cognitive reaction game
+Exec=/var/lib/phoenix-ai/workspace/pi-gadgets-and-games/scripts/launch_game.sh
+Icon=media-playback-start
+Terminal=false
+Categories=Game;Utility;

@@ -240,8 +240,8 @@ class SimonSaysSession:
         self.playback_index = 0
         self.playback_frame = 0
         self.playback_active = False
-        self.playback_extra_display_frames = 30  # +0.5s at ~60 FPS
-        self.playback_blank_frames = 45  # ~0.75s at ~60 FPS
+        self.playback_display_frames = self.config.cross_fade_frames
+        self.playback_gap_frames = 15  # Fixed gap of 15 frames (~0.25s) between signals
         
         # Dynamic tempo scaling
         self.successful_rounds = 0
@@ -259,14 +259,12 @@ class SimonSaysSession:
                 length = self.config.initial_sequence_length
             
             if not self.input_pool or len(self.input_pool) == 0:
-                # Fallback if input pool is empty
-                self.sequence = [0, 1, 3, 4]
+                self.sequence = [InputManager.BUTTON_A, InputManager.BUTTON_B, InputManager.BUTTON_X, InputManager.BUTTON_Y]
             else:
                 self.sequence = [random.choice(self.input_pool) for _ in range(length)]
         except Exception as e:
-            # Guaranteed fallback sequence
             print(f"WARNING: _build_sequence failed: {e}. Using fallback.")
-            self.sequence = [0, 1, 3, 4]
+            self.sequence = [InputManager.BUTTON_A, InputManager.BUTTON_B, InputManager.BUTTON_X, InputManager.BUTTON_Y]
         
         self.user_input = []
         self.playback_index = 0
@@ -278,43 +276,24 @@ class SimonSaysSession:
     def _update_tempo(self):
         """Apply dynamic tempo scaling with guards."""
         scale_factor = 0.95 ** (self.successful_rounds // 3)
-        new_frames = max(
+        self.current_cross_fade_frames = max(
             self.min_cross_fade_frames,
             int(self.config.cross_fade_frames * scale_factor)
         )
-        
-        # Hard clamp: ensure frame_duration >= 10
-        if new_frames < 10:
-            new_frames = 10
-            print(f"WARNING: Tempo would drop below 10 frames, clamped to 10")
-        
-        if new_frames < self.current_cross_fade_frames:
-            self.feedback = "Speed Up!"
-        
-        self.current_cross_fade_frames = new_frames
     
     def _validate_input(self, button_id):
         """Check if input matches expected sequence."""
-        # Defensive: handle edge cases
-        if not self.sequence or len(self.sequence) == 0:
-            print("WARNING: _validate_input called with empty sequence")
+        if not self.sequence:
             return False
         
         if len(self.user_input) >= len(self.sequence):
-            print(f"WARNING: user_input ({len(self.user_input)}) >= sequence ({len(self.sequence)})")
-            return False
-        
-        if button_id is None or not isinstance(button_id, int):
-            print(f"WARNING: Invalid button_id: {button_id}")
             return False
         
         expected_button = self.sequence[len(self.user_input)]
         
-        # For backwards/reverse modes, compare against reversed sequence
         if self.mode in (GameMode.MEMORY_BACKWARDS, GameMode.ENDURANCE_BACKWARDS, 
                          GameMode.MASTER_REVERSE_CHALLENGE):
-            reversed_seq = self.sequence[::-1]
-            expected_button = reversed_seq[len(self.user_input)]
+            expected_button = self.sequence[len(self.sequence) - 1 - len(self.user_input)]
         
         return button_id == expected_button
     
@@ -323,21 +302,10 @@ class SimonSaysSession:
         if self.completed or self.failed:
             return
         
-        # Defensive: handle dt edge cases
-        if dt is None or dt < 0:
-            dt = 0.016  # ~60 FPS default
-        elif dt > 5.0:
-            # Spike protection: cap at 0.1 seconds
-            dt = 0.1
-            print(f"WARNING: dt spike detected ({dt:.3f}s), capped to 0.1s")
-        
-        # Update timer for time-limited modes
         if self.config.time_limit > 0:
             self.time_remaining -= dt
-            if self.time_remaining < 0:
-                self.time_remaining = 0
-            
             if self.time_remaining <= 0:
+                self.time_remaining = 0
                 self.failed = True
                 self.failure_reason = "Time expired"
                 self.feedback = "Time's up!"
@@ -347,11 +315,12 @@ class SimonSaysSession:
         if self.phase == "showing":
             if self.playback_active:
                 self.playback_frame += 1
-                if self.playback_frame >= self.playback_total_frames:
+                total_cycle = self.current_cross_fade_frames + self.playback_gap_frames
+                
+                if self.playback_frame >= total_cycle:
                     self.playback_frame = 0
                     self.playback_index += 1
                     if self.playback_index >= len(self.sequence):
-                        # Playback complete
                         self.playback_active = False
                         self.phase = "input"
                         self.feedback = "Your turn!"
@@ -363,16 +332,13 @@ class SimonSaysSession:
                 if self._validate_input(button_id):
                     self.user_input.append(button_id)
                     self.score += self.config.score_step
-                    
-                    # Check if sequence is complete
                     if len(self.user_input) >= len(self.sequence):
                         self._round_complete()
                         return
                 else:
-                    # Wrong button pressed
                     self.failed = True
-                    self.failure_reason = f"Wrong input"
-                    self.feedback = f"Mistake! Try again."
+                    self.failure_reason = "Wrong input"
+                    self.feedback = "Mistake! Try again."
                     return
     
     def _round_complete(self):
@@ -380,34 +346,17 @@ class SimonSaysSession:
         self.successful_rounds += 1
         self.round_count += 1
         
-        # Check if we've reached max rounds
         if self.config.max_rounds > 0 and self.successful_rounds >= self.config.max_rounds:
             self.completed = True
             self.feedback = "Pattern complete!"
             return
         
-        # Add time reward
         if self.config.timer_reward_pct > 0:
             reward = self.time_remaining * self.config.timer_reward_pct
             self.time_remaining += reward
-            self.feedback = f"Success! +{reward:.1f}s"
-        else:
-            self.feedback = "Great! Next round..."
         
-        # Update tempo scaling
         self._update_tempo()
-        
-        # Build next sequence
-        old_length = len(self.sequence)
         self._build_sequence()
-        
-        # Verify sequence growth for grows_sequence modes
-        if self.config.grows_sequence:
-            expected_length = old_length + 1
-            if len(self.sequence) != expected_length:
-                print(f"WARNING: Sequence growth failed. Expected {expected_length}, got {len(self.sequence)}")
-            else:
-                print(f"✓ Sequence growth: {old_length} → {len(self.sequence)}")
     
     def restart(self):
         """Reset for a new session."""
@@ -422,7 +371,9 @@ class SimonSaysSession:
     def playback_button(self):
         """Get button currently being displayed."""
         if self.playback_active and self.playback_index < len(self.sequence):
-            return self.sequence[self.playback_index]
+            # Only return the button if we are in the 'visible' part of the cycle
+            if self.playback_frame < self.current_cross_fade_frames:
+                return self.sequence[self.playback_index]
         return None
     
     @property
@@ -430,11 +381,11 @@ class SimonSaysSession:
         """Current button alpha (fading out)."""
         if not self.playback_active or self.playback_index >= len(self.sequence):
             return 0
-        
+        if self.playback_frame >= self.current_cross_fade_frames:
+            return 0
+            
         progress = min(1.0, self.playback_frame / self.current_cross_fade_frames)
-        current_alpha = max(0, min(255, int(255 * (1 - progress))))
-        
-        return current_alpha
+        return max(0, min(255, int(255 * (1 - progress))))
 
     @property
     def playback_display_frames(self):
